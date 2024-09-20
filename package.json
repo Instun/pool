@@ -1,6 +1,6 @@
 {
   "name": "@instun/pool",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A async pool module for fibjs, nodejs, browser and react native",
   "repository": "https://github.com/Instun/pool",
   "main": "lib/index.js",
@@ -11,7 +11,7 @@
     "access": "public"
   },
   "dependencies": {
-    "semaphore-async-await": "^1.5.1",
-    "@instun/event": "^1.0.1"
+    "@instun/event": "^1.0.1",
+    "@instun/semaphore": "^1.0.0"
   }
 }
