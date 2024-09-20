@@ -2,6 +2,7 @@ var test = require("test");
 test.setup();
 
 var Pool = require("../lib");
+var db = require("db").promises;
 
 async function sleep(ms) {
     return new Promise((resolve) => {
@@ -41,7 +42,18 @@ describe("pool", () => {
         });
         pools.push(p);
 
-        assert.equal(await p(async (v) => {
+        assert.equal(await p((v) => {
+            return v + 1;
+        }), 11);
+    });
+
+    it("sync callback", async () => {
+        var p = Pool(() => {
+            return 10;
+        });
+        pools.push(p);
+
+        assert.equal(await p((v) => {
             return v + 1;
         }), 11);
     });
@@ -56,7 +68,7 @@ describe("pool", () => {
         });
         pools.push(p);
 
-        assert.equal(await p(async (v) => {
+        assert.equal(await p((v) => {
             running = p.info().running;
             return v + 1;
         }), 2);
@@ -128,12 +140,12 @@ describe("pool", () => {
         });
         pools.push(p);
 
-        assert.equal(await p(async (v) => {
+        assert.equal(await p((v) => {
             return v + 1;
         }), 2);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 running = p.info().running;
                 throw "error";
             });
@@ -141,7 +153,7 @@ describe("pool", () => {
         assert.equal(running, 1);
         assert.equal(p.info().running, 0);
 
-        assert.equal(await p(async (v) => {
+        assert.equal(await p((v) => {
             return v + 1;
         }), 3);
     });
@@ -150,7 +162,7 @@ describe("pool", () => {
         var called = false;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return 100;
             },
             destroy: async (o) => {
@@ -161,7 +173,7 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 throw "error";
             });
         });
@@ -187,7 +199,7 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 throw "error";
             });
         });
@@ -201,7 +213,7 @@ describe("pool", () => {
         var called = false;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return {
                     destroy: async () => {
                         await sleep(10);
@@ -213,7 +225,7 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 throw "error";
             });
         });
@@ -226,7 +238,7 @@ describe("pool", () => {
     it("default destroy function, but destroy is not a function, mongodb3.0 case", async () => {
         var cnt = 0;
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return {
                     destroy: ++cnt
                 }
@@ -235,7 +247,7 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 throw "error";
             });
         });
@@ -247,7 +259,7 @@ describe("pool", () => {
         var called = false;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return {
                     dispose: async () => {
                         await sleep(10);
@@ -259,7 +271,7 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => {
+            await p((v) => {
                 throw "error";
             });
         });
@@ -273,7 +285,7 @@ describe("pool", () => {
         var called = false;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return 100;
             },
             destroy: async (o) => {
@@ -284,7 +296,7 @@ describe("pool", () => {
         });
         pools.push(p);
 
-        await p(async (v) => { });
+        await p((v) => { });
 
         assert.isFalse(called);
         assert.equal(p.connections(), 1);
@@ -303,14 +315,14 @@ describe("pool", () => {
         pools.push(p);
 
         assert.throws(async () => {
-            await p(async (v) => { });
+            await p((v) => { });
         });
 
         assert.equal(n, 1);
 
         var n1 = 0;
         var p1 = Pool({
-            create: async () => {
+            create: () => {
                 n1++;
                 throw "open error";
             },
@@ -326,7 +338,7 @@ describe("pool", () => {
 
         var n2 = 0;
         var p2 = Pool({
-            create: async () => {
+            create: () => {
                 n2++;
                 if (n2 == 3)
                     return;
@@ -402,7 +414,7 @@ describe("pool", () => {
             maxsize = 2;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 createCount++;
                 return {};
             },
@@ -431,7 +443,7 @@ describe("pool", () => {
         var maxsize = 3;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return {};
             },
             maxsize: maxsize,
@@ -458,7 +470,7 @@ describe("pool", () => {
         var destroyed = false;
 
         var p = Pool({
-            create: async () => {
+            create: () => {
                 return 100;
             },
             destroy: async (o) => {
@@ -485,11 +497,65 @@ describe("pool", () => {
         assert.isTrue(destroyed);
     });
 
-    it("FIX:throw in sync create function", async () => {
-        var n = 0;
+    it('control access', async () => {
+        var p = Pool({
+            create: () => {
+                const o = {
+                    close: async () => {
+                        await sleep(10);
+                    },
+                    test_func: async function () { },
+                    test_this: async function () {
+                        if (this !== o)
+                            throw "this is not o";
+                    }
+                }
+                return o;
+            }
+        });
+        pools.push(p);
 
+        var o1;
+        await p(async o => {
+            o1 = o;
+            await o.test_func();
+        });
+
+        assert.throws(async () => {
+            await o1.test_func();
+        });
+
+        await p(async o => {
+            await o.test_this();
+        });
+    });
+
+    it('not control access', async () => {
+        var p = Pool({
+            create: () => {
+                const o = {
+                    close: async () => {
+                        await sleep(10);
+                    },
+                    test_func: async function () { }
+                }
+                return o;
+            },
+            strict: false
+        });
+        pools.push(p);
+
+        var o1;
+        await p(async o => {
+            o1 = o;
+            await o.test_func();
+        });
+
+        await o1.test_func();
+    });
+
+    it("FIX:throw in sync create function", async () => {
         var p = Pool(() => {
-            n++;
             throw "open error";
         });
         pools.push(p);
@@ -497,7 +563,24 @@ describe("pool", () => {
         assert.throws(async () => {
             await p(async (v) => { });
         });
+    });
 
+    it("db pool", async () => {
+        var p = Pool(async () => {
+            return await db.openSQLite(":memory:");
+        });
+        pools.push(p);
+
+        var conn1;
+        var r = await p(async (conn) => {
+            conn1 = conn;
+            return await conn.execute("select 1 as n")
+        });
+        assert.deepEqual(r, [{ n: 1 }]);
+
+        assert.throws(async () => {
+            await conn1.execute("select 1 as n");
+        });
     });
 });
 

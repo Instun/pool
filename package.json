@@ -1,6 +1,6 @@
 {
   "name": "@instun/pool",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A async pool module for fibjs, nodejs, browser and react native",
   "repository": "https://github.com/Instun/pool",
   "main": "lib/index.js",
