@@ -1,17 +1,29 @@
 {
   "name": "@instun/pool",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "A async pool module for fibjs, nodejs, browser and react native",
-  "repository": "https://github.com/Instun/pool",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Instun/pool"
+  },
   "main": "lib/index.js",
-  "keywords": "",
-  "author": "",
+  "keywords": [
+    "pool",
+    "connection-pool",
+    "resource-pool",
+    "async",
+    "fibjs",
+    "nodejs",
+    "browser",
+    "react-native"
+  ],
+  "author": "Instun",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@instun/event": "^1.0.1",
-    "@instun/semaphore": "^1.0.0"
+    "@instun/event": "^1.1.0",
+    "@instun/semaphore": "^1.1.0"
   }
 }

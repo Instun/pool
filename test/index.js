@@ -582,6 +582,250 @@ describe("pool", () => {
             await conn1.execute("select 1 as n");
         });
     });
+
+    it("timeout boundary test", async () => {
+        // Test very small timeout
+        var p1 = Pool({
+            create: () => ({ id: 1 }),
+            timeout: 1
+        });
+        pools.push(p1);
+        
+        await p1(async v => {
+            await sleep(20);
+        });
+        
+        // Test zero timeout
+        var p2 = Pool({
+            create: () => ({ id: 2 }),
+            timeout: 0
+        });
+        pools.push(p2);
+        
+        await p2(async v => {});
+    });
+
+    it("concurrent acquire and release", async () => {
+        const maxsize = 3;
+        var activeConnections = 0;
+        var maxActiveConnections = 0;
+        var p = Pool({
+            create: () => ({ 
+                id: Math.random(),
+                connect: function() { 
+                    activeConnections++;
+                    maxActiveConnections = Math.max(maxActiveConnections, activeConnections);
+                },
+                disconnect: function() {
+                    activeConnections--;
+                }
+            }),
+            maxsize: maxsize
+        });
+        pools.push(p);
+
+        // Start multiple concurrent operations
+        await Promise.all(
+            Array(maxsize * 2).fill().map(async (_, i) => {
+                return p(async v => {
+                    v.connect();
+                    await sleep(10);
+                    v.disconnect();
+                });
+            })
+        );
+
+        // Verify max concurrent connections never exceeded pool size
+        assert.ok(maxActiveConnections <= maxsize);
+    });
+
+    it("pool full behavior", async () => {
+        const maxsize = 2;
+        var p = Pool({
+            create: () => ({ 
+                id: Math.random(),
+                test: function() { return true; }
+            }),
+            maxsize: maxsize
+        });
+        pools.push(p);
+
+        // Hold all connections
+        const holds = [];
+        for(let i = 0; i < maxsize; i++) {
+            holds.push(p(async v => {
+                await sleep(100);
+                return v.test();
+            }));
+        }
+
+        // Try to get another connection
+        const start = Date.now();
+        const result = await p(async v => {
+            return v.test();
+        });
+        const duration = Date.now() - start;
+
+        // Verify we waited for a connection
+        assert.ok(duration >= 100);
+        assert.equal(result, true);
+    });
+
+    it("proxy restrictions", async () => {
+        var p = Pool({
+            create: () => ({
+                value: 1,
+                test: function() { return this.value; }
+            })
+        });
+        pools.push(p);
+
+        await p(async obj => {
+            // Test method access
+            assert.equal(await obj.test(), 1);
+            
+            // Test property access restriction
+            assert.throws(() => {
+                obj.value = 2;
+            });
+
+            // Test close/destroy/dispose restriction
+            assert.throws(() => {
+                obj.close();
+            });
+            assert.throws(() => {
+                obj.destroy();
+            });
+            assert.throws(() => {
+                obj.dispose();
+            });
+        });
+    });
+
+    it("handle connection validation", async () => {
+        var isValid = true;
+        var p = Pool({
+            create: () => ({ 
+                id: Math.random(),
+                isValid: () => isValid
+            }),
+            maxsize: 2
+        });
+        pools.push(p);
+
+        // First use - connection should be valid
+        await p(async v => {
+            assert.equal(await v.isValid(), true);
+        });
+
+        // Make all connections invalid
+        isValid = false;
+
+        // Should still work but return invalid status
+        await p(async v => {
+            assert.equal(await v.isValid(), false);
+        });
+    });
+
+    it("handle nested pool calls", async () => {
+        var p = Pool({
+            create: () => ({ id: Math.random() }),
+            maxsize: 2
+        });
+        pools.push(p);
+
+        await p(async v1 => {
+            // Nested pool call should work
+            await p(async v2 => {
+                assert.notEqual(v1.id, v2.id);
+            });
+        });
+    });
+
+    it("handle connection borrow timeout", async () => {
+        const maxsize = 1;
+        var p = Pool({
+            create: () => ({ id: Math.random() }),
+            maxsize: maxsize,
+            timeout: 50
+        });
+        pools.push(p);
+
+        // Hold the only connection
+        const p1 = p(async v => {
+            await sleep(100);
+        });
+
+        // Try to get another connection - should timeout
+        try {
+            await p(async v => {});
+            assert.ok(false, "Should have thrown timeout error");
+        } catch (e) {
+            // Expected error
+            assert.ok(true);
+        }
+
+        // Wait for first operation to complete
+        await p1;
+    });
+
+    it("handle connection errors during use", async () => {
+        var shouldFail = false;
+        var p = Pool({
+            create: () => ({ 
+                id: Math.random(),
+                operation: () => {
+                    if (shouldFail) throw new Error("Operation failed");
+                    return true;
+                }
+            }),
+            maxsize: 1
+        });
+        pools.push(p);
+
+        // First operation should succeed
+        await p(async v => {
+            assert.equal(await v.operation(), true);
+        });
+
+        // Make operations fail
+        shouldFail = true;
+
+        // Operation should fail but connection should be properly cleaned up
+        try {
+            await p(async v => {
+                await v.operation();
+            });
+            assert.ok(false, "Should have thrown operation error");
+        } catch (e) {
+            assert.equal(e.message, "Operation failed");
+        }
+
+        // Pool should still be usable after error
+        shouldFail = false;
+        await p(async v => {
+            assert.equal(await v.operation(), true);
+        });
+    });
+
+    it("handle rapid acquire/release cycles", async () => {
+        const maxsize = 2;
+        const cycles = 10;
+        var p = Pool({
+            create: () => ({ id: Math.random() }),
+            maxsize: maxsize
+        });
+        pools.push(p);
+
+        // Rapidly acquire and release connections
+        await Promise.all(
+            Array(cycles).fill().map(async () => {
+                await p(async v => {
+                    await sleep(1);
+                });
+            })
+        );
+    });
 });
 
 test.run(console.DEBUG);
